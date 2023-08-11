@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+gunicorn
+openai
+tiktoken
+pandas
+pydantic
+pymongo
+httpx
+jinja2
+tenacity

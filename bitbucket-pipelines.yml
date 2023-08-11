@@ -1,0 +1,23 @@
+# Deploy Application to Google App Engine
+# Deployment variables will only work within deployment steps in bitbucket-pipelines.yml
+
+image: atlassian/default-image:4
+pipelines:
+  default:
+    - step:
+        name: Deploy to Google App Engine
+        script:
+          - sed -i "s|%RUMOR_URL_PLACEHOLDER%|$RUMOR_URL|g" app.yaml
+          - sed -i "s|%RUMOR_TOKEN_PLACEHOLDER%|$RUMOR_TOKEN|g" app.yaml
+          - sed -i "s|%MONGODB_URL_PLACEHOLDER%|$MONGODB_URL|g" app.yaml
+          - sed -i "s|%MONGODB_USER_PLACEHOLDER%|$MONGODB_USER|g" app.yaml
+          - sed -i "s|%MONGODB_PASSWORD_PLACEHOLDER%|$MONGODB_PASSWORD|g" app.yaml
+          - sed -i "s|%OPENAI_ORG_PLACEHOLDER%|$OPENAI_ORG|g" app.yaml
+          - sed -i "s|%OPENAI_API_KEY_PLACEHOLDER%|$OPENAI_API_KEY|g" app.yaml
+          - sed -i "s|%BEARER_TOKEN_PLACEHOLDER%|$BEARER_TOKEN|g" app.yaml
+          - pipe: atlassian/google-app-engine-deploy:1.1.1
+            variables:
+              KEY_FILE: $KEY_FILE
+              PROJECT: $PROJECT_ID
+              DEPLOYABLES: 'app.yaml'
+              STOP_PREVIOUS_VERSION: 'true'
