@@ -1,6 +1,8 @@
 import time
 from functools import lru_cache
-from pydantic import BaseSettings, Field, SecretStr, ValidationError
+from pydantic_settings import BaseSettings
+from pydantic import Field, SecretStr, ValidationError
+from typing import ClassVar, Optional
 import logging
 import os
 import sys
@@ -20,10 +22,10 @@ if os.name == "posix":
 
 # Settings
 class Settings(BaseSettings):
-    project_name = "RUMOR API"
-    app_url: str = None
+    project_name: str = "RUMOR API"
+    app_url: Optional[str] = None
     # port: int = Field(..., env='PORT') # used to run locally
-    tags_metadata = [
+    tags_metadata: ClassVar[str] = [
         {
             "name": "rumor output",
             "description": "Get specific iteration(s) of Rumor output.",
@@ -47,7 +49,7 @@ class RumorCredentials(BaseSettings):
     bearer_token: str = Field(..., env='BEARER_TOKEN')
     rumor_url: str = Field(..., env='RUMOR_URL')
     rumor_token: SecretStr = Field(..., env='RUMOR_TOKEN')
-    openai_organization: str = Field(..., env='OPENAI_ORG')
+    openai_organization: Optional[str] = None
     openai_api_key: SecretStr = Field(..., env='OPENAI_API_KEY')
     mongodb_url: str = Field(..., env='MONGODB_URL')
     mongodb_user: str = Field(..., env='MONGODB_USER')

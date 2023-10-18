@@ -40,7 +40,7 @@ class Iteration(BaseModel):
     data: Union[Outline, str] | None = None
 
     class Config:
-        allow_population_by_field_name = True
+        populate_by_name = True
 
 
 class IterationEvent(BaseModel):

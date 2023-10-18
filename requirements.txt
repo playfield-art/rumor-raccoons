@@ -5,6 +5,7 @@ openai
 tiktoken
 pandas
 pydantic
+pydantic-settings
 pymongo
 httpx
 jinja2
