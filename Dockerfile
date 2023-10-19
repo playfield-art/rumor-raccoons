@@ -9,4 +9,4 @@ COPY . ./
 # Install production dependencies.
 RUN pip install -r requirements.txt
 # Run
-CMD ["python", "main.py"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0"]
