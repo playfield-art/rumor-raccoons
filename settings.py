@@ -49,7 +49,7 @@ class RumorCredentials(BaseSettings):
     bearer_token: str = Field(..., env='BEARER_TOKEN')
     rumor_url: str = Field(..., env='RUMOR_URL')
     rumor_token: SecretStr = Field(..., env='RUMOR_TOKEN')
-    openai_organization: Optional[str] = None
+    openai_organization: str = Field(..., env='OPENAI_ORGANIZATION')
     openai_api_key: SecretStr = Field(..., env='OPENAI_API_KEY')
     mongodb_url: str = Field(..., env='MONGODB_URL')
     mongodb_user: str = Field(..., env='MONGODB_USER')
