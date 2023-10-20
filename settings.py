@@ -51,9 +51,10 @@ class RumorCredentials(BaseSettings):
     rumor_token: SecretStr = Field(..., env='RUMOR_TOKEN')
     openai_organization: str = Field(..., env='OPENAI_ORGANIZATION')
     openai_api_key: SecretStr = Field(..., env='OPENAI_API_KEY')
-    mongodb_url: str = Field(..., env='MONGODB_URL')
-    mongodb_user: str = Field(..., env='MONGODB_USER')
-    mongodb_password: SecretStr = Field(..., env='MONGODB_PASSWORD')
+    # mongodb_url: str = Field(..., env='MONGODB_URL')
+    # mongodb_user: str = Field(..., env='MONGODB_USER')
+    # mongodb_password: SecretStr = Field(..., env='MONGODB_PASSWORD')
+    mongodb_connection: str = Field(..., env='MONGODB_CONNECTION')
 
 
 @lru_cache
