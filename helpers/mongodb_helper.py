@@ -11,14 +11,10 @@ credentials = settings.get_credentials()
 
 def _connect_mongo(db="rumor"):
     # Get credentials
-    # mongodb_user = credentials.mongodb_user
-    # mongodb_password = credentials.mongodb_password.get_secret_value()
-    # mongodb_url = credentials.mongodb_url
     mongodb_host = credentials.mongodb_host
     mongodb_port = credentials.mongodb_port
     # Connect
     try:
-        # mongodb_connect = f"mongodb+srv://{mongodb_user}:{mongodb_password}@{mongodb_url}/?retryWrites=true&w=majority"
         conn = MongoClient(mongodb_host, mongodb_port)
         conn.admin.command('ismaster')
         return data_helper.Result.ok(conn[db])
