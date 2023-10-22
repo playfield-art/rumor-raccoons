@@ -1,4 +1,4 @@
-# Welcome to RUMOR BY [playField](https://playfield.be/)
+# Welcome to RUMOR by [playField](https://playfield.be/)
 
 # Table of Contents
 
