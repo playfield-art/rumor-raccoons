@@ -2,12 +2,12 @@
 
 # Table of Contents
 
-[Rumor API](#rumor-api)
-[Render.com Deployment](#rendercom-deployment)
-[Running Locally](#running-locally)
+- [Rumor API](#rumor-api)
+- [Render.com Deployment](#rendercom-deployment)
+- [Running Locally](#running-locally)
    - [Docker Container (Option 1, Recommended)](#docker-container-option-1-recommended)
    - [Uncommented Code (Option 2)](#uncommented-code-option-2)
-[Connecting with MongoDB](#connecting-with-mongodb)
+- [Connecting with MongoDB](#connecting-with-mongodb)
    - [Connecting with MongoDB on Render.com](#connecting-with-mongodb-on-rendercom)
    - [Connecting with MongoDB Atlas](#connecting-with-mongodb-atlas)
 
