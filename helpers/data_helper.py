@@ -133,72 +133,97 @@ def keepalive():
 
 
 # Get Data
-def get_data(rumor_token: str, url: str):
-    query = """
-    query {
-      sessions(
-        pagination: { pageSize: 999999 }
-        filters: { moderated: { eq: true } }
-      ) {
-        data {
-          id
-          attributes {
-            language
-            session_id
-            date
-            time
-            createdAt
-            updatedAt
-            moderated
-            answers (pagination: {limit: 30}) {
-              id
-              question {
-                data {
-                  id
-                  attributes {
-                    title
-                    description
-                    question_tags {
-                      data {
-                        attributes {
-                          name
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-              original_transcript
-              moderated_transcript
-              common_language
-            }
-          }
-        }
-      }
-    }
-    """
-    # Data request & log
-    headers = {"Authorization": f"Bearer {rumor_token}"}
-    payload = {'query': query}
-    try:
-        req = httpx.post(url=url, json=payload, headers=headers, timeout=300)
-    except Exception as e:
-        settings.logger.exception(e)
-        return Result.fail(f"Failed to get data from {url}")
-    settings.logger.info(f"Response status from {url}: {req}")
-    # Data parse
-    json_data = json.loads(req.text)
-    sessions_df = parse_data(json_data)
+def get_data(rumor_token: str, url: str, chunk_amount: int = 50):
 
-    result1 = mongodb_helper.add_post("json_sessions", json_data)
-    result2 = mongodb_helper.add_dataframe("sessions", sessions_df)
+    offset = 0
+    all_sessions = []
+    all_json = []
+
+    while True:
+        query = """
+        query GetSessions($chunk_amount: Int!, $offset: Int!){
+        sessions(
+            pagination: { limit: $chunk_amount , start: $offset }
+            filters: { moderated: { eq: true } }
+        ) {
+            data {
+            id
+            attributes {
+                language
+                session_id
+                date
+                time
+                createdAt
+                updatedAt
+                moderated
+                answers (pagination: {limit: 30}) {
+                id
+                question {
+                    data {
+                    id
+                    attributes {
+                        title
+                        description
+                        question_tags {
+                        data {
+                            attributes {
+                            name
+                            }
+                        }
+                        }
+                    }
+                    }
+                }
+                original_transcript
+                moderated_transcript
+                common_language
+                }
+            }
+            }
+        }
+        }
+        """
+        variables = {
+            "chunk_amount": chunk_amount,
+            "offset": offset
+        }
+        headers = {"Authorization": f"Bearer {rumor_token}"}
+        payload = {'query': query, 'variables': variables}
+
+        try:
+            req = httpx.post(url=url, json=payload,headers=headers, timeout=300)
+        except Exception as e:
+            settings.logger.exception(e)
+            return Result.fail(f"Failed to get data from {url}")
+        
+        settings.logger.info(f"Response status from {url}: {req}")
+
+        try:
+            json_data = req.json()
+            sessions = json_data.get("data", {}).get("sessions", {}).get("data", [])
+        except Exception as e:
+            settings.logger.exception(e)
+            return Result.fail("Failed to parse JSON response")
+
+        if not sessions:
+            break  # No more sessions in the response
+
+        sessions_df = parse_data(json_data)
+        all_json.extend(sessions)
+        all_sessions.append(sessions_df)
+        offset += chunk_amount
+    
+    combined_sessions_df = pd.concat(all_sessions, ignore_index=True)
+
+    result1 = mongodb_helper.add_post("json_sessions", all_json)
+    result2 = mongodb_helper.add_dataframe("sessions", combined_sessions_df)
     settings.logger.info(str(result1))
     settings.logger.info(str(result2))
+
     if result1.succeeded and result2.succeeded:
-        return Result.ok("OK - Data was refreshed and written to database")
+        return Result.ok("OK - Data was refreshed and written to the database")
     else:
-        return Result.fail("Data could not be written to database",
-                           error_code=StatusCodes.database_write_error.value)
+        return Result.fail("Data could not be written to the database",error_code=StatusCodes.database_write_error.value)
 
 
 # Parse the json data to dataframe
