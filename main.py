@@ -48,7 +48,7 @@ async def keepalive():
 
 
 @app.get("/mongo_connection")
-async def mongo(auth: HTTPAuthorizationCredentials = Security(security)):
+async def mongo_connection(auth: HTTPAuthorizationCredentials = Security(security)):
     if (auth is None) or (auth.credentials != credentials.bearer_token):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail=UnauthorizedMessage().detail)

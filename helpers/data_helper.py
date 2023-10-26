@@ -14,7 +14,6 @@ from tenacity import (Retrying, RetryError, retry_if_not_exception_type, stop_af
 
 credentials = settings.get_credentials()
 
-
 class Tag(BaseModel):
     tag: str
     length: int = 700
@@ -308,83 +307,118 @@ def pretty_outline(iteration: Iteration):
 
 def create_rumor_iteration(start_time: datetime, iteration_id: str, outline: Outline,
                            callback_url: Union[HttpUrl, None] = None):
-    # Database: set status to processing
+    
+    # Database: Set status to processing
     status = TaskStatus.processing
     mongo_result = mongodb_helper.add_post("rumor", None, doc_id=iteration_id, status=status.name)
     settings.logger.info(mongo_result)
+
     if not mongo_result.succeeded:
-        return Result.fail("Data could not be written to database", error_code=StatusCodes.database_write_error.value)
-    # Database: read input data
-    result = mongodb_helper.read_dataframe("sessions")
-    if not result.succeeded:
-        status = TaskStatus.error
-        update_dict = {"status": status.name, "data": result.error}
-        mongo_result = mongodb_helper.update_post("rumor", doc_id=iteration_id, document=update_dict)
-        return result
-    sessions_df = result.value
-    # Loop over outline section to generate summary for each tag
+        return Result.fail("Data could not be written to the database", error_code=StatusCodes.database_write_error.value)
+
+    # read data from database
+    sessions_df, status = read_input_data(iteration_id, status)
+
+    # Generate summaries for each section
     for section in outline.sections:
         # Console output for clarity
         divider = "-" * 10
         settings.logger.info(f"{divider} Generating summaries for section {section.title}")
-        # Loop over tags
-        tag_data_counter = 0
-        for tag in section.tags:
-            # Set tag and log
-            tag_name = tag.tag.lower().strip()
-            settings.logger.info(f"{divider * 2} Generating summary for tag {tag_name}")
-            # Generate summary
-            summary_result = generate_tag_summary(tag_name, sessions_df, summary_max_chars=tag.length)
-            if summary_result.succeeded:
-                section.summary[tag_name] = str(summary_result.value or "")
-                tag_data_counter += 1
-            # Catch OpenAI errors
-            elif summary_result.error_code in [code.value for code in StatusCodes if code.name.startswith("openai")]:
-                status = TaskStatus.error
-                update_dict = {"status": status.name, "data": summary_result.error}
-                mongo_result = mongodb_helper.update_post("rumor", doc_id=iteration_id, document=update_dict)
-                return summary_result
-            else:
-                settings.logger.info(str(summary_result))
-                section.summary[tag_name] = ""
-        # Generate "overall" summary for the section
-        overall_summary_list = [str(summ) for summ in section.summary.values()]
-        settings.logger.info(f"{divider * 2} Generating overall summary for section {section.title}")
-        if tag_data_counter in [0, 1]:
-            section.summary["overall"] = '\n'.join(overall_summary_list).strip()
-        else:
-            # Generate actual overall summary
-            overall_summary_list_split = prepare_list_split_tokens(overall_summary_list)
-            full_summary_result = generate_multipart_summary(overall_summary_list_split)
-            section.summary["overall"] = str(full_summary_result.value or "")
-    # Calculate runtime (timedelta object)
-    runtime_timedelta = datetime.now() - start_time
-    runtime = str(runtime_timedelta)[:-3]
+        status = generate_summaries(section, sessions_df, iteration_id, status)
+
+    runtime = calculate_runtime(start_time)
     settings.logger.info(f"Total runtime for iteration {iteration_id}: {runtime}")
-    # Set output dict
+
     outline_dict = outline.dict()
-    # Commit to database
-    status = TaskStatus.done
-    update_dict = {"runtime": runtime, "status": status.name, "data": outline_dict}
+    result_update, status = update_database(iteration_id, runtime, status, outline_dict)
+
+    if callback_url:
+        handle_callback(iteration_id, runtime, status.name, callback_url)
+
+    return Result.ok(outline)
+
+
+def read_input_data(iteration_id: str, status):
+    result = mongodb_helper.read_dataframe("sessions")
+    
+    if not result.succeeded:
+        updated_status = TaskStatus.error
+        update_dict = {"status": updated_status.name, "data": result.error}
+        mongodb_helper.update_post("rumor", doc_id=iteration_id, document=update_dict)
+        return result, updated_status
+    
+    return result.value, status
+
+
+def generate_summaries(section: Outline , sessions_df: pd.DataFrame , iteration_id:str, status: TaskStatus):
+    #For each tag in a section -> generate summary
+    for tag in section.tags:
+        # Console output for clarity
+        tag_name = tag.tag.lower().strip()
+        divider = "-" * 10
+        settings.logger.info(f"{divider * 2} Generating summary for tag {tag_name}")
+
+        # Generate summary
+        summary_result = generate_tag_summary(tag_name, sessions_df, summary_max_chars=tag.length)
+        if summary_result.succeeded:
+            section.summary[tag_name] = str(summary_result.value or "") # or "" to prevent NoneType error
+        elif summary_result.error_code in [code.value for code in StatusCodes if code.name.startswith("openai")]:
+            result, status = handle_openai_error(iteration_id, summary_result.error, status) 
+            return status
+        else:
+            settings.logger.info(str(summary_result))
+            section.summary[tag_name] = "" 
+
+    # All summaries in a list to generate an overall summary
+    overall_summary_list = [str(summ) for summ in section.summary.values()]
+
+    if len(overall_summary_list) in [0, 1]: # if there is only one summary = overall summary
+        section.summary["overall"] = '\n'.join(overall_summary_list).strip()
+    else:
+        overall_summary_list_split = prepare_list_split_tokens(overall_summary_list) 
+        full_summary_result = generate_multipart_summary(overall_summary_list_split)
+        section.summary["overall"] = str(full_summary_result.value or "") 
+    
+    return Result.ok(section)
+
+
+def calculate_runtime(start_time):
+    runtime_timedelta = datetime.now() - start_time
+    return str(runtime_timedelta)[:-3]
+
+
+def update_database(iteration_id, runtime, status, outline_dict):
+    updated_status = TaskStatus.done
+    update_dict = {"runtime": runtime,"status": updated_status.name, "data": outline_dict}
     result_update = mongodb_helper.update_post("rumor", doc_id=iteration_id, document=update_dict)
     if not result_update.succeeded:
-        return result_update
-    # Callback
-    if callback_url:
-        params = {'id': iteration_id}
-        callback_json = {
-            "iteration_id": iteration_id,
-            "runtime": runtime,
-            "status": status.name
-        }
-        try:
-            httpx.post(url=callback_url, params=params, json=callback_json, timeout=20)
-        except Exception as e:
-            settings.logger.exception(e)
-            settings.logger.error(f"Callback url {callback_url} is not available")
-            return Result.fail(f"Callback url {callback_url} is not available")
-    # Return
-    return Result.ok(outline)
+        return result_update, updated_status
+    
+    return result_update, updated_status
+
+
+def handle_openai_error(iteration_id, error_data):
+    updated_status = TaskStatus.error
+    update_dict = {"status": updated_status.name, "data": error_data}
+    mongodb_helper.update_post(
+        "rumor", doc_id=iteration_id, document=update_dict)
+    return Result.fail(error_data, error_code=StatusCodes.openai_invalid_request_error.value), updated_status
+
+
+def handle_callback(iteration_id, runtime, status, callback_url):
+    params = {'id': iteration_id}
+    callback_json = {
+        "iteration_id": iteration_id,
+        "runtime": runtime,
+        "status": status
+    }
+    try:
+        httpx.post(url=callback_url, params=params,
+                   json=callback_json, timeout=20)
+    except Exception as e:
+        settings.logger.exception(e)
+        settings.logger.error(f"Callback URL {callback_url} is not available")
+        return Result.fail(f"Callback URL {callback_url} is not available")
 
 
 # Generate tag summary
@@ -465,7 +499,9 @@ def call_openai_gpt(temperature: float, system_instruct: str, first_prompt: str,
                     summary_max_chars: int = 700, summary_limit_prompt: str = ""):
     # Looping over the data list is not implemented yet, will need to be implemented later when
     # more responses are present in the input data
-    if len(data) == 1:
+
+    # Check how many entries are in the data list and generate accordingly
+    if len(data) == 1: # if there is only one entry
         gpt_response_result = completion_openai(temperature, system_instruct, first_prompt, data[0])
         if gpt_response_result.succeeded:
             gpt_response = gpt_response_result.value
@@ -481,7 +517,8 @@ def call_openai_gpt(temperature: float, system_instruct: str, first_prompt: str,
             return Result.ok(gpt_response)
         else:
             return gpt_response_result
-    else:
+        
+    else: # if there are multiple entries -> split in multiple parts -> generate -> combine -> multipart summary
         gpt_response_all = []
         for number, text in enumerate(data, start=1):
             gpt_response_result = completion_openai(temperature, system_instruct, first_prompt, text)
