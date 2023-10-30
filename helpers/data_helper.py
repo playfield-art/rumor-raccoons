@@ -11,6 +11,7 @@ import settings
 import tiktoken
 from tenacity import (Retrying, RetryError, retry_if_not_exception_type, stop_after_attempt,
                       wait_exponential)  # for exponential backoff
+import requests
 
 credentials = settings.get_credentials()
 
@@ -281,12 +282,12 @@ def prepare_tag_data(tag: str, sessions_df: pd.DataFrame):
     df_filter = sessions_df[tag] == 1
     tag_data = sessions_df[df_filter]
 
-    if len(tag_data.moderated_transcript.dropna()) == 0:
+    if len(tag_data.common_language.dropna()) == 0:
         return Result.fail(f"The supplied tag <{tag}> has no data.")
 
     # Transform dataframe data to large string for gpt
-    entries_data = tag_data.moderated_transcript.dropna().tolist()
-    entry_prefix = "Inzending: "
+    entries_data = tag_data.common_language.dropna().tolist()
+    entry_prefix = "Submission: "
     entries = [entry_prefix + entry for entry in entries_data]
     formatted_data = prepare_list_split_tokens(entries)
     # Return
@@ -446,25 +447,25 @@ def handle_callback(iteration_id, runtime, status, callback_url):
         return Result.fail(f"Callback URL {callback_url} is not available")
 
 
+def load_prompts_from_json(json_file):
+    with open(json_file, 'r') as file:
+        prompts = json.load(file)
+    return prompts
+
 # Generate tag summary
 def generate_tag_summary(tag: str, data: pd.DataFrame, temperature: float = 0.5, summary_max_chars: int = 700):
+    prompts = load_prompts_from_json("prompts.json")
+
     # pre-check
     if tag not in data:
         return Result.fail(f"The supplied tag <{tag}> was not found in the data.")
 
-    system_instruct = """
-    Je bent een intelligente assistent. Je maakt een samenvatting van resultaten van 
-    een onderzoek. Schrijf een samenhangend geheel. Doe dit met volgende 
-    richtlijnen:
-    Alle tekst wordt verteld vanuit het personage "Rumor". Rumor is de installatie 
-    zelf en spreekt de toeschouwer aan als mensheid met "jullie" en rekent zichzelf 
-    daar nooit bij. Ze vertelt over de gemeenschappelijke toekomst als voldongen 
-    feit, als een voorspelling. Maak voorspellingen die beginnen met bijvoorbeeld 
-    "Mensen zullen", "er zal", ...
-    """
+    system_instruct = prompts.get("systemInstruct", "")
+    tag_prompt = prompts.get("tagPrompt", "")
+    summary_limit_prompt = prompts.get("summaryLimitPrompt", "")
 
-    tag_prompt = f"Het onderzoek bevat resultaten over {tag}."
-    summary_limit_prompt = f"Verkort volgende samenvatting tot maximaal {summary_max_chars} tekens exclusief spaties."
+    tag_prompt = tag_prompt.format(tag=tag)
+    summary_limit_prompt = summary_limit_prompt.format(summary_max_chars=summary_max_chars)
 
     # get data for the tag as string
     result = prepare_tag_data(tag, data)
@@ -480,41 +481,36 @@ def generate_tag_summary(tag: str, data: pd.DataFrame, temperature: float = 0.5,
 
 # Generate multipart summary will create a single summary from multiple summaries
 def generate_multipart_summary(data: list, temperature: float = 0.5, summary_max_chars: int = 700):
-    system_instruct = """
-    Je bent een intelligente assistent. Je maakt een samenvatting van tekst. Schrijf een samenhangend geheel. 
-    Doe dit met volgende richtlijnen:
-    Alle tekst wordt verteld vanuit het personage "Rumor". Rumor is de installatie 
-    zelf en spreekt de toeschouwer aan als mensheid met "jullie" en rekent zichzelf 
-    daar nooit bij. Ze vertelt over de gemeenschappelijke toekomst als voldongen 
-    feit, als een voorspelling. Maak voorspellingen die beginnen met bijvoorbeeld 
-    "Mensen zullen", "er zal", ...
-    """
+    prompts = load_prompts_from_json("prompts.json")
 
-    summary_prompt = f"Maak een samenvatting van volgende tekst."
-    summary_limit_prompt = f"Verkort de samenvatting tot maximaal {summary_max_chars} tekens exclusief spaties."
+    system_instruct = prompts.get("systemInstruct", "")
+    summary_prompt = prompts.get("summaryPrompt", "")
+    summary_limit_prompt = prompts.get("summaryLimitPrompt", "")
 
+    summary_limit_prompt = summary_limit_prompt.format(summary_max_chars=summary_max_chars)
+    
     result_gpt = call_openai_gpt(temperature, system_instruct, summary_prompt, data, summary_max_chars,
                                  summary_limit_prompt)
     return result_gpt
 
 
 def generate_analysis(tag: str, data: pd.DataFrame, temperature: float = 0.5):
+    prompts = load_prompts_from_json("prompts.json")
     # pre-check
     if tag not in data:
         return Result.fail(f"The supplied tag <{tag}> was not found in the data.")
 
-    system_instruct = """
-    Je bent een intelligente assistent. Je analyseert de resultaten van een onderzoek.
-    """
-
-    tag_prompt = f"Welk(e) {tag} komt het meest voor in de resultaten van het onderzoek?"
+    system_instruct_analysis = prompts.get("systemInstructAnalysis", "")
+    tag_prompt_analysis = prompts.get("tagPromptAnalysis", "")
+    tag_prompt_analysis = tag_prompt_analysis.format(tag=tag)
 
     # get data for the tag as string
     result = prepare_tag_data(tag, data)
     # check result and generate if succeeded
     if result.succeeded:
         tag_data = result.value
-        result_gpt = call_openai_gpt(temperature, system_instruct, tag_prompt, tag_data)
+        result_gpt = call_openai_gpt(
+            temperature, system_instruct_analysis, tag_prompt_analysis, tag_data)
         return result_gpt
     else:
         return result
@@ -620,3 +616,21 @@ def completion_openai(temperature: float, system_instruct: str, prompt: str, tex
     except Exception as e:
         # Other errors
         settings.logger.exception(e)
+
+def translate_text(target: str, text:str):
+
+    api_key = credentials.google_translate_api.get_secret_value()
+    url = f"https://translation.googleapis.com/language/translate/v2?key={api_key}"
+
+    payload = {
+        "q": text,
+        "target": target,
+    }
+
+    response = requests.post(url, json=payload)
+
+    if response.status_code == 200:
+        translated_text = response.json()["data"]["translations"][0]["translatedText"]
+        return translated_text
+    else:
+        return f"Translation failed with status code: {response.status_code}"

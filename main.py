@@ -6,7 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from helpers import data_helper, mongodb_helper
 from pydantic import BaseModel, HttpUrl, parse_obj_as, ValidationError
-from typing import Union
+from typing import Union, Optional
 import settings
 import uvicorn
 
@@ -129,11 +129,11 @@ async def generate_rumor(request: Request, outline: data_helper.Outline, backgro
 
 
 @app.get("/rumor", tags=["rumor output"], response_model=data_helper.Iteration, response_model_by_alias=False)
-async def get_rumor(auth: HTTPAuthorizationCredentials = Security(security)):
+async def get_rumor(lang: Optional[str] = "nl" ,auth: HTTPAuthorizationCredentials = Security(security)):
     if (auth is None) or (auth.credentials != credentials.bearer_token):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=UnauthorizedMessage().detail)
     else:
-        rumor = await get_rumor_iteration(iteration_id="latest", auth=auth)
+        rumor = await get_rumor_iteration(iteration_id="latest", auth=auth, language_target = lang)
         return rumor
 
 
@@ -151,7 +151,7 @@ async def get_rumor_pretty(request: Request, auth: HTTPAuthorizationCredentials 
 
 @app.get("/rumor/iteration/{iteration_id}", tags=["rumor output"], response_model=data_helper.Iteration,
          response_model_by_alias=False)
-async def get_rumor_iteration(iteration_id: str, auth: HTTPAuthorizationCredentials = Security(security)):
+async def get_rumor_iteration(iteration_id: str, auth: HTTPAuthorizationCredentials = Security(security), language_target: str = "nl"):
     if (auth is None) or (auth.credentials != credentials.bearer_token):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=UnauthorizedMessage().detail)
     else:
@@ -161,6 +161,17 @@ async def get_rumor_iteration(iteration_id: str, auth: HTTPAuthorizationCredenti
             rumor_post = post_result.value
             try:
                 rumor = data_helper.Iteration.parse_obj(rumor_post)
+                
+                # Loop through all sections in the rumor
+                if language_target != "en":
+                    for section in rumor.data.sections:
+                        section_summary = section.summary
+                        # Iterate through all keys (parts) in the section's summary
+                        for key, value in section_summary.items():
+                        # Translate each value and update it in the summary
+                            translated_value = data_helper.translate_text(language_target, value)
+                            section_summary[key] = translated_value
+
                 return rumor
             except ValidationError as e:
                 settings.logger.exception(e)
@@ -248,7 +259,7 @@ async def get_rumor_iterations_metadata(auth: HTTPAuthorizationCredentials = Sec
 
 
 @app.get("/rumor/analyze/{tag}", tags=["rumor generation"])
-async def analyze_tag(tag: str, auth: HTTPAuthorizationCredentials = Security(security)):
+async def analyze_tag(tag: str, lang: Optional[str] = 'en', auth: HTTPAuthorizationCredentials = Security(security)):
     if (auth is None) or (auth.credentials != credentials.bearer_token):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=UnauthorizedMessage().detail)
     else:
@@ -258,7 +269,15 @@ async def analyze_tag(tag: str, auth: HTTPAuthorizationCredentials = Security(se
             sessions_df = result.value
             tag = tag.lower().strip()
             result = data_helper.generate_analysis(tag, sessions_df)
+
+            translated_result = None  # Initialize the variable
             if result.succeeded:
+                if lang and lang != 'en':
+                    translated_result = data_helper.translate_text(lang, str(result))
+            if translated_result is not None:
+                return {"analysis": str(translated_result)}
+            
+            else:
                 return {"analysis": str(result)}
 
         if not result.succeeded:

@@ -53,7 +53,7 @@ class RumorCredentials(BaseSettings):
     openai_api_key: SecretStr = Field(..., env='OPENAI_API_KEY')
     mongodb_host: str = Field(..., env='MONGODB_HOST')
     mongodb_port: int = Field(..., env='MONGODB_PORT')
-
+    google_translate_api: SecretStr = Field(...,env='GOOGLE_TRANSLATE_API')
 
 @lru_cache
 def get_settings():
