@@ -151,7 +151,7 @@ async def get_rumor_pretty(request: Request, auth: HTTPAuthorizationCredentials 
 
 @app.get("/rumor/iteration/{iteration_id}", tags=["rumor output"], response_model=data_helper.Iteration,
          response_model_by_alias=False)
-async def get_rumor_iteration(iteration_id: str, auth: HTTPAuthorizationCredentials = Security(security), language_target: str = "nl"):
+async def get_rumor_iteration(iteration_id: str, auth: HTTPAuthorizationCredentials = Security(security), lang: str = "nl"):
     if (auth is None) or (auth.credentials != credentials.bearer_token):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=UnauthorizedMessage().detail)
     else:
@@ -163,13 +163,13 @@ async def get_rumor_iteration(iteration_id: str, auth: HTTPAuthorizationCredenti
                 rumor = data_helper.Iteration.parse_obj(rumor_post)
                 
                 # Loop through all sections in the rumor
-                if language_target != "en":
+                if lang != "en":
                     for section in rumor.data.sections:
                         section_summary = section.summary
                         # Iterate through all keys (parts) in the section's summary
                         for key, value in section_summary.items():
                         # Translate each value and update it in the summary
-                            translated_value = data_helper.translate_text(language_target, value)
+                            translated_value = data_helper.translate_text(lang, value)
                             section_summary[key] = translated_value
 
                 return rumor
