@@ -133,7 +133,7 @@ async def get_rumor(lang: Optional[str] = "nl" ,auth: HTTPAuthorizationCredentia
     if (auth is None) or (auth.credentials != credentials.bearer_token):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=UnauthorizedMessage().detail)
     else:
-        rumor = await get_rumor_iteration(iteration_id="latest", auth=auth, lang = lang)
+        rumor = await get_rumor_iteration(iteration_id="latest", lang=lang,  auth=auth)
         return rumor
 
 
@@ -151,7 +151,7 @@ async def get_rumor_pretty(request: Request, auth: HTTPAuthorizationCredentials 
 
 @app.get("/rumor/iteration/{iteration_id}", tags=["rumor output"], response_model=data_helper.Iteration,
          response_model_by_alias=False)
-async def get_rumor_iteration(iteration_id: str, auth: HTTPAuthorizationCredentials = Security(security), lang: str = "nl"):
+async def get_rumor_iteration(iteration_id: str, lang: str = "nl", auth: HTTPAuthorizationCredentials = Security(security)):
     if (auth is None) or (auth.credentials != credentials.bearer_token):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=UnauthorizedMessage().detail)
     else:
