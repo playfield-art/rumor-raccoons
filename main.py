@@ -133,7 +133,7 @@ async def get_rumor(lang: Optional[str] = "nl" ,auth: HTTPAuthorizationCredentia
     if (auth is None) or (auth.credentials != credentials.bearer_token):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=UnauthorizedMessage().detail)
     else:
-        rumor = await get_rumor_iteration(iteration_id="latest", auth=auth, language_target = lang)
+        rumor = await get_rumor_iteration(iteration_id="latest", auth=auth, lang = lang)
         return rumor
 
 
