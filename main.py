@@ -129,7 +129,7 @@ async def generate_rumor(request: Request, outline: data_helper.Outline, backgro
 
 
 @app.get("/rumor", tags=["rumor output"], response_model=data_helper.Iteration, response_model_by_alias=False)
-async def get_rumor(lang: Optional[str] = "nl" ,auth: HTTPAuthorizationCredentials = Security(security)):
+async def get_rumor(lang: Optional[str] = "" ,auth: HTTPAuthorizationCredentials = Security(security)):
     if (auth is None) or (auth.credentials != credentials.bearer_token):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=UnauthorizedMessage().detail)
     else:
@@ -138,11 +138,11 @@ async def get_rumor(lang: Optional[str] = "nl" ,auth: HTTPAuthorizationCredentia
 
 
 @app.get("/rumor/pretty", tags=["rumor output"])
-async def get_rumor_pretty(request: Request, auth: HTTPAuthorizationCredentials = Security(security)):
+async def get_rumor_pretty(request: Request, lang: Optional[str] = "", auth: HTTPAuthorizationCredentials = Security(security)):
     if (auth is None) or (auth.credentials != credentials.bearer_token):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=UnauthorizedMessage().detail)
     else:
-        rumor = await get_rumor_iteration(iteration_id="latest", auth=auth)
+        rumor = await get_rumor_iteration(iteration_id="latest", lang=lang, auth=auth)
         rumor_pretty = data_helper.pretty_outline(rumor)
         return templates.TemplateResponse("html_md_template.html",
                                           {"request": request, "title": "Rumor Output Pretty",
@@ -151,27 +151,29 @@ async def get_rumor_pretty(request: Request, auth: HTTPAuthorizationCredentials 
 
 @app.get("/rumor/iteration/{iteration_id}", tags=["rumor output"], response_model=data_helper.Iteration,
          response_model_by_alias=False)
-async def get_rumor_iteration(iteration_id: str, lang: str = "nl", auth: HTTPAuthorizationCredentials = Security(security)):
+async def get_rumor_iteration(iteration_id: str, lang: str = "", auth: HTTPAuthorizationCredentials = Security(security)):
     if (auth is None) or (auth.credentials != credentials.bearer_token):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=UnauthorizedMessage().detail)
     else:
-        collection = "rumor"
+
+        #check if not latest, then set the iteration_id to the correct collection by lang
+        if lang == "en":
+            collection = "rumor"
+        else:
+            if not lang:
+                collection = "rumor_nl"
+            else:
+                collection = "rumor_" + lang
+
+        if iteration_id != "latest" and lang != "en":
+            iteration_id += f"_{lang}" if lang else "_nl"
+
         post_result = mongodb_helper.get_post(collection, iteration_id)
         if post_result.succeeded:
             rumor_post = post_result.value
             try:
                 rumor = data_helper.Iteration.parse_obj(rumor_post)
                 
-                # Loop through all sections in the rumor
-                if lang != "en":
-                    for section in rumor.data.sections:
-                        section_summary = section.summary
-                        # Iterate through all keys (parts) in the section's summary
-                        for key, value in section_summary.items():
-                        # Translate each value and update it in the summary
-                            translated_value = data_helper.translate_text(lang, value)
-                            section_summary[key] = translated_value
-
                 return rumor
             except ValidationError as e:
                 settings.logger.exception(e)
@@ -203,7 +205,8 @@ async def get_rumor_iterations(iteration_ids: list[str], auth: HTTPAuthorization
     else:
         rumor_iterations = []
         for iteration_id in iteration_ids:
-            post_result = mongodb_helper.get_post("rumor", iteration_id)
+            collection = data_helper.get_collection_from_iteration(iteration_id)
+            post_result = mongodb_helper.get_post(collection, iteration_id)
             if post_result.succeeded:
                 rumor_post = post_result.value
                 try:
@@ -220,11 +223,17 @@ async def get_rumor_iterations(iteration_ids: list[str], auth: HTTPAuthorization
 
 @app.get("/rumor/iterations/all", tags=["rumor output"], response_model=list[data_helper.Iteration],
          response_model_by_alias=False)
-async def get_rumor_all_iterations(auth: HTTPAuthorizationCredentials = Security(security)):
+async def get_rumor_all_iterations(lang: Optional[str] = "", auth: HTTPAuthorizationCredentials = Security(security)):
     if (auth is None) or (auth.credentials != credentials.bearer_token):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=UnauthorizedMessage().detail)
     else:
-        posts_result = mongodb_helper.get_posts("rumor")
+        if lang:
+            collection = "rumor_" + lang
+        else:
+            collection = "rumor"
+
+        posts_result = mongodb_helper.get_posts(collection)
+
         if posts_result.succeeded:
             rumor_list = posts_result.value
             try:
@@ -240,11 +249,15 @@ async def get_rumor_all_iterations(auth: HTTPAuthorizationCredentials = Security
 
 @app.get("/rumor/iterations/metadata", tags=["rumor output"], response_model=list[data_helper.Iteration],
          response_model_by_alias=False, response_model_exclude_none=True)
-async def get_rumor_iterations_metadata(auth: HTTPAuthorizationCredentials = Security(security)):
+async def get_rumor_iterations_metadata(lang: Optional[str] = "" , auth: HTTPAuthorizationCredentials = Security(security)):
     if (auth is None) or (auth.credentials != credentials.bearer_token):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=UnauthorizedMessage().detail)
     else:
-        posts_result = mongodb_helper.get_posts_metadata("rumor")
+        if lang and lang != 'en':
+            collection = "rumor_" + lang
+        else:
+            collection = "rumor"
+        posts_result = mongodb_helper.get_posts_metadata(collection)
         if posts_result.succeeded:
             rumor_list = posts_result.value
             try:
@@ -282,6 +295,7 @@ async def analyze_tag(tag: str, lang: Optional[str] = 'en', auth: HTTPAuthorizat
 
         if not result.succeeded:
             raise HTTPException(status_code=int(result.error_code), detail=str(result))
+
 
 
 # Run locally - uncomment this block

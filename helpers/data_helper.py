@@ -333,13 +333,16 @@ def pretty_outline(iteration: Iteration):
 
 def create_rumor_iteration(start_time: datetime, iteration_id: str, outline: Outline,
                            callback_url: Union[HttpUrl, None] = None):
-    
     # Database: Set status to processing
     status = TaskStatus.processing
     mongo_result = mongodb_helper.add_post("rumor", None, doc_id=iteration_id, status=status.name)
+    mongo_result_nl = mongodb_helper.add_post("rumor_nl", None, doc_id=iteration_id + "_nl", status=status.name)
     settings.logger.info(mongo_result)
 
     if not mongo_result.succeeded:
+        return Result.fail("Data could not be written to the database", error_code=StatusCodes.database_write_error.value)
+
+    if not mongo_result_nl.succeeded:
         return Result.fail("Data could not be written to the database", error_code=StatusCodes.database_write_error.value)
 
     # read data from database
@@ -356,13 +359,32 @@ def create_rumor_iteration(start_time: datetime, iteration_id: str, outline: Out
     settings.logger.info(f"Total runtime for iteration {iteration_id}: {runtime}")
 
     outline_dict = outline.dict()
-    result_update, status = update_database(iteration_id, runtime, status, outline_dict)
+    result_update, status = update_database("rumor" ,iteration_id, runtime, status, outline_dict)
 
     if callback_url:
         handle_callback(iteration_id, runtime, status.name, callback_url)
 
+    # translate
+    settings.logger.info(f" Translating...")
+    translated_outline_nl = translate_outline(outline_dict, "nl")
+
+    settings.logger.info(f" Translation succeeded and written to DB")
+    result_update_nl, status = update_database("rumor_nl", iteration_id + "_nl", runtime, status, translated_outline_nl)
+
     return Result.ok(outline)
 
+def translate_outline(outline_dict, target_language):
+    translated_outline = outline_dict.copy()
+    for section in translated_outline['sections']:
+            section_summary = section['summary']
+            for key, value in section_summary.items():
+                translated_value = translate_text(target_language, value)
+                section_summary[key] = translated_value
+
+    translated_outline['intro'] = translate_text(target_language, translated_outline['intro'])
+    translated_outline['outro'] = translate_text(target_language, translated_outline['outro'])
+
+    return translated_outline
 
 def read_input_data(iteration_id: str, status):
     result = mongodb_helper.read_dataframe("sessions")
@@ -413,10 +435,10 @@ def calculate_runtime(start_time):
     return str(runtime_timedelta)[:-3]
 
 
-def update_database(iteration_id, runtime, status, outline_dict):
+def update_database(collection, iteration_id, runtime, status, outline_dict):
     updated_status = TaskStatus.done
     update_dict = {"runtime": runtime,"status": updated_status.name, "data": outline_dict}
-    result_update = mongodb_helper.update_post("rumor", doc_id=iteration_id, document=update_dict)
+    result_update = mongodb_helper.update_post(collection, doc_id=iteration_id, document=update_dict)
     if not result_update.succeeded:
         return result_update, updated_status
     
@@ -634,3 +656,13 @@ def translate_text(target: str, text:str):
         return translated_text
     else:
         return f"Translation failed with status code: {response.status_code}"
+    
+def get_collection_from_iteration(iteration_id):
+    language = iteration_id.split("_")
+    if len(language) > 1:
+        lang = language[1]
+        collection = "rumor_" + lang
+    else:
+        collection = "rumor"
+
+    return collection
