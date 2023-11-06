@@ -336,14 +336,20 @@ def create_rumor_iteration(start_time: datetime, iteration_id: str, outline: Out
     # Database: Set status to processing
     status = TaskStatus.processing
     mongo_result = mongodb_helper.add_post("rumor", None, doc_id=iteration_id, status=status.name)
-    mongo_result_nl = mongodb_helper.add_post("rumor_nl", None, doc_id=iteration_id + "_nl", status=status.name)
+    #for every language code in the array language_codes in settings.py , make a new collection
+    for lang in settings.get_settings().language_codes:
+        lang_code = lang["lang"]
+        collection = "rumor_" + lang_code
+        mongo_result_lang = mongodb_helper.add_post(collection, None, doc_id=iteration_id + "_" + lang_code, status=status.name)
+
     settings.logger.info(mongo_result)
 
     if not mongo_result.succeeded:
         return Result.fail("Data could not be written to the database", error_code=StatusCodes.database_write_error.value)
-
-    if not mongo_result_nl.succeeded:
+    
+    if not mongo_result_lang.succeeded:
         return Result.fail("Data could not be written to the database", error_code=StatusCodes.database_write_error.value)
+
 
     # read data from database
     sessions_df, status = read_input_data(iteration_id, status)
@@ -364,12 +370,16 @@ def create_rumor_iteration(start_time: datetime, iteration_id: str, outline: Out
     if callback_url:
         handle_callback(iteration_id, runtime, status.name, callback_url)
 
-    # translate
-    settings.logger.info(f" Translating...")
-    translated_outline_nl = translate_outline(outline_dict, "nl")
+    for lang in settings.get_settings().language_codes:
+        lang_code = lang["lang"]
+        collection = "rumor_" + lang_code
 
-    settings.logger.info(f" Translation succeeded and written to DB")
-    result_update_nl, status = update_database("rumor_nl", iteration_id + "_nl", runtime, status, translated_outline_nl)
+        # translate
+        settings.logger.info(f"Translating for language code: {lang_code} ...")
+        translated_outline = translate_outline(outline_dict, lang_code)
+
+        result_update_lang, status = update_database(collection, iteration_id + "_" + lang_code, runtime, status, translated_outline)
+        settings.logger.info(f"Translation succeeded and written to {collection} DB")
 
     return Result.ok(outline)
 
@@ -583,8 +593,7 @@ def completion_openai(temperature: float, system_instruct: str, prompt: str, tex
         # Set required parameters & retrieve model
         openai.organization = credentials.openai_organization
         openai.api_key = credentials.openai_api_key.get_secret_value()
-        openai.Model.retrieve("gpt-4")
-    except openai.error.AuthenticationError as auth_error:
+    except openai.AuthenticationError as auth_error:
         return Result.fail(str(auth_error), error_code=StatusCodes.openai_auth_error.value)
     except Exception as e:
         settings.logger.exception(e)
@@ -594,13 +603,13 @@ def completion_openai(temperature: float, system_instruct: str, prompt: str, tex
     try:
         for attempt in Retrying(wait=wait_exponential(multiplier=30, min=30, max=1200),
                                 stop=stop_after_attempt(max_tries),
-                                retry=retry_if_not_exception_type(openai.error.InvalidRequestError)):
+                                retry=retry_if_not_exception_type(openai.BadRequestError)):
             with attempt:
                 # Send keepalive request with keepalive function
                 ping = keepalive()
 
                 # Get OpenAI response
-                completion = openai.ChatCompletion.create(
+                completion = openai.chat.completions.create(
                     model="gpt-4",
                     temperature=temperature,
                     top_p=1,
@@ -608,29 +617,29 @@ def completion_openai(temperature: float, system_instruct: str, prompt: str, tex
                         {"role": "system", "content": system_instruct},
                         {"role": "user", "content": prompt},
                         {"role": "user", "content": text}
-                    ]
-                )
+                        ]
+                    )
 
                 # Return response
                 gpt_response = completion.choices[0].message.content
                 settings.logger.debug(gpt_response)
                 return Result.ok(gpt_response)
-    except openai.error.InvalidRequestError as ire:
+    except openai.BadRequestError as ire:
         # Handle Invalid Request error
         return Result.fail(str(ire), error_code=StatusCodes.openai_invalid_request_error.value)
-    except openai.error.APIError as e:
+    except openai.APIError as e:
         # Handle API error
         settings.logger.exception(f"OpenAI API returned an API Error: {e}")
-    except openai.error.APIConnectionError as e:
+    except openai.APIConnectionError as e:
         # Handle connection error
         settings.logger.exception(f"Failed to connect to OpenAI API: {e}")
-    except openai.error.RateLimitError as e:
+    except openai.RateLimitError as e:
         # Handle rate limit error (we recommend using exponential backoff)
         settings.logger.exception(f"OpenAI API request exceeded rate limit: {e}")
-    except openai.error.ServiceUnavailableError as e:
+    except openai.APIStatusError as e:
         # Handle API error
         settings.logger.exception(f"OpenAI API returned a Service Unavailable Error: {e}")
-    except openai.error.Timeout as e:
+    except openai.APITimeoutError as e:
         # Handle API error
         settings.logger.exception(f"OpenAI API returned a Timeout Error: {e}")
     except RetryError:

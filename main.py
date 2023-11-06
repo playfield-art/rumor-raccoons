@@ -227,7 +227,7 @@ async def get_rumor_all_iterations(lang: Optional[str] = "", auth: HTTPAuthoriza
     if (auth is None) or (auth.credentials != credentials.bearer_token):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=UnauthorizedMessage().detail)
     else:
-        if lang:
+        if lang and lang != 'en':
             collection = "rumor_" + lang
         else:
             collection = "rumor"
@@ -296,8 +296,28 @@ async def analyze_tag(tag: str, lang: Optional[str] = 'en', auth: HTTPAuthorizat
         if not result.succeeded:
             raise HTTPException(status_code=int(result.error_code), detail=str(result))
 
+@app.delete("/rumor/delete/{iteration_id}", tags=["rumor actions"])
+async def delete_rumor_iteration(iteration_id: str, auth: HTTPAuthorizationCredentials = Security(security)):
+    if (auth is None) or (auth.credentials != credentials.bearer_token):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=UnauthorizedMessage().detail)
+    else:
+        try:
+            collection = "rumor"
+            result = mongodb_helper.delete_post(collection, iteration_id)
 
+            for lang in default_settings.language_codes:
+                lang_code = lang['lang']
+                collection = "rumor_" + lang['lang']
+                iteration_id_lang = iteration_id + "_" + lang_code
+                result_lang = mongodb_helper.delete_post(collection, iteration_id_lang)
 
+            return {"succesfully deleted all entries for iteration_id": iteration_id}
+
+        except Exception as e:
+            settings.logger.exception(e)
+            return {"response": str(e)}
+        
 # Run locally - uncomment this block
 # if __name__ == "__main__":
 #     settings.logger.info(f"{str(datetime.now())[:-3]} - Starting API")

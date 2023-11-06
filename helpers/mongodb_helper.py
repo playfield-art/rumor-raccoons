@@ -193,3 +193,23 @@ def read_dataframe(collection: str):
         settings.logger.exception(e)
         return data_helper.Result.fail(f"Could not read data from collection {collection} as Pandas DataFrame",
                                        error_code=data_helper.StatusCodes.database_data_parse_error.value)
+
+def delete_post(collection: str, doc_id: str):
+    result = _connect_mongo()
+    if result.succeeded:
+        db = result.value
+        connect_collection = db[collection]
+    else:
+        return result
+
+    # Document
+    query = {'_id': doc_id}
+
+    # Delete
+    try:
+        connect_collection.delete_one(query)
+        return data_helper.Result.ok(f"Data was deleted from database collection {collection}")
+    except Exception as e:
+        settings.logger.exception(e)
+        return data_helper.Result.fail(f"Data could not be deleted from database collection {collection}",
+                                       error_code=data_helper.StatusCodes.database_write_error.value)

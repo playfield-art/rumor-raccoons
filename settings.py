@@ -39,6 +39,12 @@ class Settings(BaseSettings):
             "description": "Actions to perform such as refresh input data, update rumor output, ...",
         },
     ]
+    language_codes: ClassVar[str] = [
+        {
+            "lang": "nl",
+            "description": "Dutch",
+        }
+    ]
 
     def set_app_url(self, request):
         self.app_url = str(request.base_url)
