@@ -4,5 +4,7 @@
     "summaryLimitPrompt": "Shorten the following summary to a maximum of {summary_max_chars} characters excluding spaces.",
     "summaryPrompt": "Create a summary of the following text.",
     "systemInstructAnalysis": "You are an intelligent assistant. You analyze the results of a research study.",
-    "tagPromptAnalysis": "Which {tag} is the most prevalent in the research results?"
+    "tagPromptAnalysis": "Which {tag} is the most prevalent in the research results?",
+    "rewritePrompt": "Rewrite the following text with a maximum of {summary_max_chars} characters excluding spaces."
 }
+

@@ -128,6 +128,24 @@ async def generate_rumor(request: Request, outline: data_helper.Outline, backgro
         return {"iteration_id": iteration_id}
 
 
+@app.put("/rumor/rephrase", tags=["rumor generation"])
+async def rephrase_rumor(request: Request, background_tasks: BackgroundTasks, auth: HTTPAuthorizationCredentials = Security(security)):
+    if (auth is None) or (auth.credentials != credentials.bearer_token):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=UnauthorizedMessage().detail)
+    else:
+        # Start time
+        start_time = datetime.now()
+        iteration_id = start_time.strftime("%Y%m%d-%H%M%S")
+        # Set app_url for keepalive if not set
+        if not default_settings.app_url:
+            default_settings.set_app_url(request)
+        # Run task
+        background_tasks.add_task(data_helper.rephrase_rumor_iteration,
+                                start_time=start_time, iteration_id=iteration_id)
+        
+        return {"iteration_id": iteration_id}
+   
+
 @app.get("/rumor", tags=["rumor output"], response_model=data_helper.Iteration, response_model_by_alias=False)
 async def get_rumor(lang: Optional[str] = "" ,auth: HTTPAuthorizationCredentials = Security(security)):
     if (auth is None) or (auth.credentials != credentials.bearer_token):
@@ -135,7 +153,7 @@ async def get_rumor(lang: Optional[str] = "" ,auth: HTTPAuthorizationCredentials
     else:
         rumor = await get_rumor_iteration(iteration_id="latest", lang=lang,  auth=auth)
         return rumor
-
+    
 
 @app.get("/rumor/pretty", tags=["rumor output"])
 async def get_rumor_pretty(request: Request, lang: Optional[str] = "", auth: HTTPAuthorizationCredentials = Security(security)):

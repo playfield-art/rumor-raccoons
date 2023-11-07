@@ -336,11 +336,7 @@ def create_rumor_iteration(start_time: datetime, iteration_id: str, outline: Out
     # Database: Set status to processing
     status = TaskStatus.processing
     mongo_result = mongodb_helper.add_post("rumor", None, doc_id=iteration_id, status=status.name)
-    #for every language code in the array language_codes in settings.py , make a new collection
-    for lang in settings.get_settings().language_codes:
-        lang_code = lang["lang"]
-        collection = "rumor_" + lang_code
-        mongo_result_lang = mongodb_helper.add_post(collection, None, doc_id=iteration_id + "_" + lang_code, status=status.name)
+    mongo_result_lang = add_language_post(iteration_id, status)
 
     settings.logger.info(mongo_result)
 
@@ -349,8 +345,7 @@ def create_rumor_iteration(start_time: datetime, iteration_id: str, outline: Out
     
     if not mongo_result_lang.succeeded:
         return Result.fail("Data could not be written to the database", error_code=StatusCodes.database_write_error.value)
-
-
+    
     # read data from database
     sessions_df, status = read_input_data(iteration_id, status)
 
@@ -370,6 +365,75 @@ def create_rumor_iteration(start_time: datetime, iteration_id: str, outline: Out
     if callback_url:
         handle_callback(iteration_id, runtime, status.name, callback_url)
 
+    translate_all_lang(iteration_id, status, runtime, outline_dict)
+
+    return Result.ok(outline)
+
+def rephrase_rumor_iteration(start_time:str, iteration_id: str, temperature: float = 0.5, summary_max_chars: int = 700):
+
+    prompts = load_prompts_from_json("prompts.json")
+    latest_post = mongodb_helper.get_post("rumor", "latest")
+    
+    status = TaskStatus.processing
+    mongo_result = mongodb_helper.add_post("rumor", None, doc_id=iteration_id, status=status.name)
+    mongo_result_lang = add_language_post(iteration_id, status)
+    settings.logger.info(mongo_result)
+
+    systemInstruct = prompts.get("systemInstruct", "")
+    rewritePrompt = prompts.get("rewritePrompt", "")
+    rewritePrompt = rewritePrompt.format(summary_max_chars=summary_max_chars)
+
+    if latest_post.succeeded:
+        outline_dict = rephrase_summaries(latest_post.value, systemInstruct, rewritePrompt, temperature)
+    
+        runtime = calculate_runtime(start_time)
+        result_update, status = update_database("rumor", iteration_id, runtime, status, outline_dict)
+        
+        if result_update.succeeded:
+            settings.logger.info(f"Rumor iteration {iteration_id} was updated in the database")
+        else:
+            settings.logger.error(f"Failed to update the database: {result_update.error_message}")
+    
+    translate_all_lang(iteration_id, status, runtime, outline_dict)
+    
+    return Result.ok(outline_dict)
+
+def add_language_post(iteration_id: str, status: TaskStatus):
+    #for every language code in the array language_codes in settings.py , make a new collection
+    for lang in settings.get_settings().language_codes:
+        lang_code = lang["lang"]
+        collection = "rumor_" + lang_code
+        mongo_result_lang = mongodb_helper.add_post(collection, None, doc_id=iteration_id + "_" + lang_code, status=status.name)
+    
+    return mongo_result_lang
+
+def rephrase_summaries(latest_post: dict, systemInstruct: str, rewritePrompt: str, temperature: float = 0.5):
+
+    rumor = latest_post
+
+    for section in rumor['data']['sections']:
+        section_summary = section['summary']
+        #if there are only 2 summaries then overall should be same as the first summary
+        if len(section_summary) <= 2:
+            first_key = list(section_summary.keys())[0]
+            rephrase_result = completion_openai(temperature, systemInstruct, rewritePrompt, section_summary[first_key])
+            if rephrase_result.succeeded:
+                settings.logger.info(f"--------------- Rephrasing successful for {first_key}")
+                section_summary[first_key] = str(rephrase_result.value or "")
+                section_summary["overall"] = section_summary[first_key]
+        else:
+            for key, value in section_summary.items():
+                rephrase_result = completion_openai(temperature, systemInstruct, rewritePrompt, value)
+                if rephrase_result.succeeded:
+                    settings.logger.info(f"--------------- Rephrasing successful for {key}")
+                    section_summary[key] = str(rephrase_result.value or "")
+                else:
+                    settings.logger.info(str(rephrase_result))
+                    section_summary[key] = ""
+        
+    return rumor['data']
+
+def translate_all_lang(iteration_id: str, status: TaskStatus, runtime:str, outline_dict: dict):
     for lang in settings.get_settings().language_codes:
         lang_code = lang["lang"]
         collection = "rumor_" + lang_code
@@ -381,7 +445,6 @@ def create_rumor_iteration(start_time: datetime, iteration_id: str, outline: Out
         result_update_lang, status = update_database(collection, iteration_id + "_" + lang_code, runtime, status, translated_outline)
         settings.logger.info(f"Translation succeeded and written to {collection} DB")
 
-    return Result.ok(outline)
 
 def translate_outline(outline_dict, target_language):
     translated_outline = outline_dict.copy()
