@@ -728,7 +728,15 @@ def translate_text(target: str, text:str):
         return translated_text
     else:
         return f"Translation failed with status code: {response.status_code}"
-    
+
+def get_collection_from_lang(lang: str):
+    if lang and lang != 'en':
+        collection = "rumor_" + lang
+    else:
+        collection = "rumor"
+
+    return collection
+
 def get_collection_from_iteration(iteration_id):
     language = iteration_id.split("_")
     if len(language) > 1:
@@ -738,3 +746,4 @@ def get_collection_from_iteration(iteration_id):
         collection = "rumor"
 
     return collection
+

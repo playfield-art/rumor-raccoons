@@ -245,11 +245,8 @@ async def get_rumor_all_iterations(lang: Optional[str] = "", auth: HTTPAuthoriza
     if (auth is None) or (auth.credentials != credentials.bearer_token):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=UnauthorizedMessage().detail)
     else:
-        if lang and lang != 'en':
-            collection = "rumor_" + lang
-        else:
-            collection = "rumor"
 
+        collection = data_helper.get_collection_from_lang(lang)
         posts_result = mongodb_helper.get_posts(collection)
 
         if posts_result.succeeded:
@@ -271,10 +268,8 @@ async def get_rumor_iterations_metadata(lang: Optional[str] = "" , auth: HTTPAut
     if (auth is None) or (auth.credentials != credentials.bearer_token):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=UnauthorizedMessage().detail)
     else:
-        if lang and lang != 'en':
-            collection = "rumor_" + lang
-        else:
-            collection = "rumor"
+        
+        collection = data_helper.get_collection_from_lang(lang)
         posts_result = mongodb_helper.get_posts_metadata(collection)
         if posts_result.succeeded:
             rumor_list = posts_result.value
