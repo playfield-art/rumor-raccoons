@@ -423,13 +423,16 @@ def rephrase_summaries(latest_post: dict, systemInstruct: str, rewritePrompt: st
                 section_summary["overall"] = section_summary[first_key]
         else:
             for key, value in section_summary.items():
-                rephrase_result = completion_openai(temperature, systemInstruct, rewritePrompt, value)
-                if rephrase_result.succeeded:
-                    settings.logger.info(f"--------------- Rephrasing successful for {key}")
-                    section_summary[key] = str(rephrase_result.value or "")
+                if value == "":
+                    continue
                 else:
-                    settings.logger.info(str(rephrase_result))
-                    section_summary[key] = ""
+                    rephrase_result = completion_openai(temperature, systemInstruct, rewritePrompt, value)
+                    if rephrase_result.succeeded:
+                        settings.logger.info(f"--------------- Rephrasing successful for {key}")
+                        section_summary[key] = str(rephrase_result.value or "")
+                    else:
+                        settings.logger.info(str(rephrase_result))
+                        section_summary[key] = ""
         
     return rumor['data']
 
@@ -673,7 +676,7 @@ def completion_openai(temperature: float, system_instruct: str, prompt: str, tex
 
                 # Get OpenAI response
                 completion = openai.chat.completions.create(
-                    model="gpt-4",
+                    model="gpt-4-1106-preview",
                     temperature=temperature,
                     top_p=1,
                     messages=[
